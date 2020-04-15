@@ -42,7 +42,7 @@
                     {:keys [email staging? storage] :as tls} :tls
                     :or {traefik-dir (.getAbsolutePath (File. "_traefik"))
                          management-address "127.0.0.1:8080"
-                         forward-to "127.0.0.1:3000"
+                         forward-to "127.0.0.1:3030"
                          tls nil}
                     :as options}]
   (let [;tls {:email "standalone-app-cert@iandavies.org"
@@ -79,7 +79,7 @@
     (.removeShutdownHook (Runtime/getRuntime) shutdown-hook)
     (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
     (reset! traefik-process (-> (ProcessBuilder. (concat [(str traefik-dir "/bin/anvil-" binary-name)
-                                                          "--log.level=debug"
+                                                          "--log.level=info"
                                                           "--api.insecure=true"
                                                           "--api.dashboard=true"
                                                           "--providers.rest.insecure=true"
@@ -113,12 +113,12 @@
           (throw (Exception. "Traefik failed to start within a reasonable time.")))))
 
     (let [resp @(http/put (str "http://" management-address "/api/providers/rest")
-                          {:body (json/write-str {:http {:routers  {:router (merge {:entryPoints ["https"]
-                                                                                    :rule        (str "Host(`" hostname "`)")
-                                                                                    :service     "anvil"}
-                                                                                   (when tls
-                                                                                     {:tls {:certResolver "letsEncrypt"}}))}
-                                                         :services {"anvil" {:loadBalancer {:servers [{:url (str "http://" forward-to)}]}}}}})})]
+                          {:body (json/write-str {:http {:routers  {"anvil-app" (merge {:entryPoints (concat ["https"] (when-not tls ["http"]))
+                                                                                        :rule        (str "Host(`" hostname "`)")
+                                                                                        :service     "anvil-runtime"}
+                                                                                       (when tls
+                                                                                         {:tls {:certResolver "letsEncrypt"}}))}
+                                                         :services {"anvil-runtime" {:loadBalancer {:servers [{:url forward-to}]}}}}})})]
       (when-not (= (:status resp) 200)
         (throw (Exception. "Could not configure Traefik:" (:body resp)))))))
 
