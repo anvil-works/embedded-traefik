@@ -4,7 +4,9 @@
             [clojure.data.json :as json])
   (:import (java.util.zip GZIPInputStream)
            (org.apache.commons.compress.archivers.tar TarArchiveInputStream)
-           (java.io BufferedReader File)))
+           (java.io BufferedReader File)
+           (java.nio.file Files)
+           (java.nio.file.attribute PosixFilePermission)))
 
 (defn tar-gz-seq
   "A seq of TarArchiveEntry instances on a TarArchiveInputStream."
@@ -71,6 +73,8 @@
 
     (kill-traefik!)
     (extract binary-resource (str traefik-dir "/bin"))
+    (when-not (re-find #"Windows" os)
+      (Files/setPosixFilePermissions (.toPath (File. (str traefik-dir "/bin/" binary-name))) #{PosixFilePermission/OWNER_EXECUTE PosixFilePermission/GROUP_EXECUTE PosixFilePermission/OTHERS_EXECUTE}))
     (.renameTo (File. (str traefik-dir "/bin/" binary-name)) (File. (str traefik-dir "/bin/anvil-" binary-name)))
     (when tls
       (let [storage-file (File. ^String storage)]
