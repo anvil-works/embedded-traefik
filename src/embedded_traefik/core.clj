@@ -99,7 +99,7 @@
                                                                        ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"])))))
                               (.redirectError ProcessBuilder$Redirect/INHERIT)
                               (.start)))
-    
+
     (future
       (with-open [reader (io/reader (.getInputStream @traefik-process))]
         (loop []
@@ -120,7 +120,7 @@
           (throw (Exception. "Traefik failed to start within a reasonable time.")))))
 
     (let [resp @(http/put (str "http://" management-address "/api/providers/rest")
-                          {:body (json/write-str {:http {:routers  {"anvil-app" (merge {:entryPoints (if tls ["http"] ["https"])
+                          {:body (json/write-str {:http {:routers  {"anvil-app" (merge {:entryPoints (if tls ["https"] ["http"])
                                                                                         :rule        (str "Host(`" hostname "`)")
                                                                                         :service     "anvil-runtime"}
                                                                                        (when tls
