@@ -83,7 +83,7 @@
     (.removeShutdownHook (Runtime/getRuntime) shutdown-hook)
     (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
     (reset! traefik-process (-> (ProcessBuilder. (concat [(str traefik-dir "/bin/anvil-" binary-name)
-                                                          "--log.level=info"
+                                                          "--log.level=debug"
                                                           "--api.insecure=true"
                                                           "--api.dashboard=true"
                                                           "--providers.rest.insecure=true"
