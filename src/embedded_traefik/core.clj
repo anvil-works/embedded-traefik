@@ -6,7 +6,8 @@
            (org.apache.commons.compress.archivers.tar TarArchiveInputStream)
            (java.io BufferedReader File)
            (java.nio.file Files)
-           (java.nio.file.attribute PosixFilePermission)))
+           (java.nio.file.attribute PosixFilePermission)
+           (java.lang ProcessBuilder$Redirect)))
 
 (defn tar-gz-seq
   "A seq of TarArchiveEntry instances on a TarArchiveInputStream."
@@ -82,21 +83,23 @@
           (spit storage-file "")))) ; Make sure storage file exists
     (.removeShutdownHook (Runtime/getRuntime) shutdown-hook)
     (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
-    (reset! traefik-process (-> (ProcessBuilder. (concat [(str traefik-dir "/bin/anvil-" binary-name)
-                                                          "--log.level=debug"
-                                                          "--api.insecure=true"
-                                                          "--api.dashboard=true"
-                                                          "--providers.rest.insecure=true"
-                                                          "--entrypoints.http.address=:80"
-                                                          (str "--entrypoints.traefik.address=" management-address)]
-                                                         (if tls
-                                                           (concat ["--certificatesResolvers.letsEncrypt.acme.tlsChallenge=true"
-                                                                    (str "--entrypoints.https.address=:" tls-port)
-                                                                    (str "--certificatesResolvers.letsEncrypt.acme.email=" email)
-                                                                    (str "--certificatesResolvers.letsEncrypt.acme.storage=" storage)]
-                                                                   (when staging?
-                                                                     ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"])))))
-                                (.start)))
+    (reset! traefik-process (doto (ProcessBuilder. (concat [(str traefik-dir "/bin/anvil-" binary-name)
+                                                            "--log.level=debug"
+                                                            "--api.insecure=true"
+                                                            "--api.dashboard=true"
+                                                            "--providers.rest.insecure=true"
+                                                            ;"--entrypoints.http.address=:80"
+                                                            (str "--entrypoints.traefik.address=" management-address)]
+                                                           (if tls
+                                                             (concat ["--certificatesResolvers.letsEncrypt.acme.tlsChallenge=true"
+                                                                      (str "--entrypoints.https.address=:" tls-port)
+                                                                      (str "--certificatesResolvers.letsEncrypt.acme.email=" email)
+                                                                      (str "--certificatesResolvers.letsEncrypt.acme.storage=" storage)]
+                                                                     (when staging?
+                                                                       ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"])))))
+                              (.redirectError ProcessBuilder$Redirect/INHERIT)
+                              (.start)))
+    
     (future
       (with-open [reader (io/reader (.getInputStream @traefik-process))]
         (loop []
