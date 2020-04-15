@@ -41,7 +41,7 @@
 
 
 (defn run-traefik [{:keys [traefik-dir hostname management-address forward-to]
-                    {:keys [email staging? storage] :as tls} :tls
+                    {:keys [email staging? storage] tls-port :port :as tls} :tls
                     :or {traefik-dir (.getAbsolutePath (File. "_traefik"))
                          management-address "127.0.0.1:8080"
                          forward-to "127.0.0.1:3030"
@@ -88,10 +88,10 @@
                                                           "--api.dashboard=true"
                                                           "--providers.rest.insecure=true"
                                                           "--entrypoints.http.address=:80"
-                                                          "--entrypoints.https.address=:443"
                                                           (str "--entrypoints.traefik.address=" management-address)]
-                                                         (when tls
+                                                         (if tls
                                                            (concat ["--certificatesResolvers.letsEncrypt.acme.tlsChallenge=true"
+                                                                    (str "--entrypoints.https.address=:" tls-port)
                                                                     (str "--certificatesResolvers.letsEncrypt.acme.email=" email)
                                                                     (str "--certificatesResolvers.letsEncrypt.acme.storage=" storage)]
                                                                    (when staging?
@@ -117,7 +117,7 @@
           (throw (Exception. "Traefik failed to start within a reasonable time.")))))
 
     (let [resp @(http/put (str "http://" management-address "/api/providers/rest")
-                          {:body (json/write-str {:http {:routers  {"anvil-app" (merge {:entryPoints (concat ["https"] (when-not tls ["http"]))
+                          {:body (json/write-str {:http {:routers  {"anvil-app" (merge {:entryPoints (if tls ["http"] ["https"])
                                                                                         :rule        (str "Host(`" hostname "`)")
                                                                                         :service     "anvil-runtime"}
                                                                                        (when tls
