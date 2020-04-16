@@ -1,13 +1,13 @@
 (ns embedded-traefik.core
   (:require [clojure.java.io :as io]
-            [org.httpkit.client :as http]
-            [clojure.data.json :as json])
+            [clj-yaml.core :as yaml])
   (:import (java.util.zip GZIPInputStream)
            (org.apache.commons.compress.archivers.tar TarArchiveInputStream)
-           (java.io BufferedReader File)
+           (java.io File)
            (java.nio.file Files)
            (java.nio.file.attribute PosixFilePermission)
-           (java.lang ProcessBuilder$Redirect)))
+           (java.lang ProcessBuilder$Redirect)
+           (java.util ArrayList Collection)))
 
 (defn tar-gz-seq
   "A seq of TarArchiveEntry instances on a TarArchiveInputStream."
@@ -30,6 +30,16 @@
                 (.write outf bytes 0 nread)
                 (recur (.read tis bytes 0 32768))))))))))
 
+(defn extract-traefik [from-resource to-dir posix? binary-name]
+  (extract from-resource to-dir)
+  (when posix?
+    (Files/setPosixFilePermissions (.toPath (File. (str to-dir "/" binary-name))) #{PosixFilePermission/OWNER_READ
+                                                                                    PosixFilePermission/OWNER_WRITE
+                                                                                    PosixFilePermission/OWNER_EXECUTE
+                                                                                    PosixFilePermission/GROUP_EXECUTE
+                                                                                    PosixFilePermission/OTHERS_EXECUTE}))
+  (.renameTo (File. (str to-dir "/" binary-name)) (File. (str to-dir "/anvil-" binary-name))))
+
 (defonce traefik-process (atom nil))
 (defn kill-traefik! []
   (.waitFor (.exec (Runtime/getRuntime) (if (re-find #"Windows" (System/getProperty "os.name"))
@@ -40,93 +50,171 @@
                                             (println "Runtime exiting. Shutting down Traefik.")
                                             (kill-traefik!))))
 
+(defn run-traefik [{:keys [traefik-dir                      ; The directory to extract Traefik into. Default .traefik
+                           forward-to                       ; The backend URL to forward traffic to. Default http://127.0.0.1:3030
+                           listen-ip                        ; The IP address to listen on. Default 0.0.0.0
+                           http-listen-port                 ; The port to listen for plain HTTP connections on. Default 80, can be nil to disable listening for HTTP connections
+                           https-listen-port                ; The port to listen for secure HTTPS connections on. Default 443, can be nil to disable listening for HTTP connections
+                           redirect-http-to-https?          ; Set to true to redirect all plain HTTP connections to HTTPS. Set to :permanent to make this a permanent redirect. Default true
+                           manual-cert-file                 ; Path to a TLS certificate file to use for TLS connections. Default nil
+                           manual-cert-key-file             ; Path to a TLS certificate private key file to use for TLS connections. Default nil
+                           letsencrypt-domain               ; Domain to request a TLS certificate for. Default nil
+                           letsencrypt-email                ; Email address to attach to LetsEncrypt account for renewal reminders. Default nil
+                           letsencrypt-staging?             ; Set to true to use the LetsEncrypt staging server instead of live
+                           letsencrypt-storage              ; LetsEncrypt certificates will be stored in JSON format at this path. Default <traefik-dir>/letsencrypt-certs.json
+                           log-level                        ; Traefik log level. Default :info
+                           dashboard-ip                     ; IP to serve the Traefik dashboard on, if enabled. Default 127.0.0.1
+                           dashboard-port                   ; Port to serve the Traefik dashboard on. Default nil (disabled)
+                           accessLog]                       ; Set to true to log requests to stdout. Set to a path to log to a file.
+                    :or   {traefik-dir             (.getAbsolutePath (File. ".traefik"))
+                           forward-to              "http://127.0.0.1:3030"
+                           listen-ip               "0.0.0.0"
+                           http-listen-port        80
+                           https-listen-port       443
+                           redirect-http-to-https? true
+                           manual-cert-file        nil
+                           manual-cert-key-file    nil
+                           letsencrypt-domain      nil
+                           letsencrypt-email       nil
+                           letsencrypt-staging?    false
+                           log-level               :info
+                           dashboard-ip            "127.0.0.1"
+                           dashboard-port          nil
+                           accessLog               false}
+                    :as   _options}]
+  (let [manual-tls? (and https-listen-port
+                         manual-cert-file
+                         manual-cert-key-file)
+        letsencrypt? (and https-listen-port
+                          letsencrypt-domain
+                          (not manual-tls?))
 
-(defn run-traefik [{:keys [traefik-dir hostname management-address forward-to]
-                    {:keys [email staging? storage] tls-port :port :as tls} :tls
-                    :or {traefik-dir (.getAbsolutePath (File. "_traefik"))
-                         management-address "127.0.0.1:8080"
-                         forward-to "127.0.0.1:3030"
-                         tls nil}
-                    :as options}]
-  (let [;tls {:email "standalone-app-cert@iandavies.org"
-        ;     :staging? true
-        ;     :storage (str traefik-dir "/acme.json")}
+        letsencrypt-storage (or letsencrypt-storage (str traefik-dir "/letsencrypt-certs.json"))
 
-        os (System/getProperty "os.name")
-        [os-arch binary-name] (cond
-                                (re-find #"Windows" os)
-                                ["windows_amd64" "traefik.exe"]
+        os-name (System/getProperty "os.name")
+        os-arch (System/getProperty "os.arch")
+        [archive-os-arch binary-name] (cond
+                                (re-find #"Windows" os-name)
+                                [(str "windows_" os-arch) "traefik.exe"]
 
-                                (re-find #"Linux" os)
-                                ["linux_amd64" "traefik"]
+                                (re-find #"Linux" os-name)
+                                [(str "linux_" (condp = os-arch
+                                                 "arm" "armv7"
+                                                 "aarch64" "arm64"
+                                                 os-arch)) "traefik"]
 
-                                (re-find #"Mac" os)
+                                (re-find #"Mac" os-name)
                                 ["darwin_amd64" "traefik"]
 
                                 :else
-                                (throw (Exception. (str "Unsupported OS: " os))))
+                                (throw (Exception. (str "Unsupported OS: " os-name " (" os-arch ")"))))
 
-        filename (str "traefik_v2.2.0_" os-arch ".tar.gz")
+        posix? (not (re-find #"Windows" os-name))
 
-        binary-resource (io/resource filename)]
+        filename (str "traefik_v2.2.0_" archive-os-arch ".tar.gz")
+
+        binary-resource (io/resource filename)
+
+        config-file (File. (str traefik-dir "/traefik.yml"))]
+
     (when-not binary-resource
       (throw (Exception. (str "Traefik binary not found:" filename))))
 
+    ;; Make sure Traefik isn't already running.
     (kill-traefik!)
-    (extract binary-resource (str traefik-dir "/bin"))
-    (when-not (re-find #"Windows" os)
-      (Files/setPosixFilePermissions (.toPath (File. (str traefik-dir "/bin/" binary-name))) #{PosixFilePermission/OWNER_EXECUTE PosixFilePermission/GROUP_EXECUTE PosixFilePermission/OTHERS_EXECUTE}))
-    (.renameTo (File. (str traefik-dir "/bin/" binary-name)) (File. (str traefik-dir "/bin/anvil-" binary-name)))
-    (when tls
-      (let [storage-file (File. ^String storage)]
+
+    ;; Extract the Traefik executable
+    (extract-traefik binary-resource (str traefik-dir "/bin") posix? binary-name)
+
+    ;; If we're managing certificates, make sure the acme config file exists and has the right permissions
+    (when (and letsencrypt? letsencrypt-storage)
+      (let [storage-file (File. ^String letsencrypt-storage)]
         (when-not (.exists storage-file)
-          (spit storage-file "")))) ; Make sure storage file exists
+          (spit storage-file ""))
+        (when posix?
+          (Files/setPosixFilePermissions (.toPath storage-file) #{PosixFilePermission/OWNER_READ
+                                                                  PosixFilePermission/OWNER_WRITE}))))
+
+    ;; Generate the Traefik dynamic config
+    (spit config-file (yaml/generate-string
+                        (merge {:http
+                                {:routers (merge (when (or manual-tls? letsencrypt?)
+                                                   {"https-route" {:entryPoints ["https"]
+                                                                   :rule        "PathPrefix(`/`)"
+                                                                   :service     "backend"
+                                                                   :tls         (cond manual-tls?
+                                                                                      {}
+                                                                                      letsencrypt?
+                                                                                      {:certResolver "letsEncrypt"
+                                                                                       :domains      [{:main letsencrypt-domain}]})}})
+
+                                                 (when http-listen-port
+                                                   (if redirect-http-to-https?
+                                                     {"redirectToHttpsRoute" {:entryPoints ["http"]
+                                                                              :rule        "PathPrefix(`/`)"
+                                                                              :middlewares ["redirectToHTTPS"]
+                                                                              :service     "noop@internal"}}
+                                                     {"http-route" {:entryPoints ["http"]
+                                                                    :rule        "PathPrefix(`/`)"
+                                                                    :service     "backend"}}))
+
+                                                 (when dashboard-port
+                                                   {"dashboard"
+                                                    {:entryPoints ["dashboard"]
+                                                     :rule        "PathPrefix(`/`)"
+                                                     :service     "api@internal"}}))
+
+                                 :middlewares {"redirectToHTTPS"
+                                               {"redirectScheme"
+                                                {:scheme    :https
+                                                 :permanent (= redirect-http-to-https? :permanent)}}}
+
+                                 :services    {"backend"
+                                               {:loadBalancer {:servers [{:url forward-to}]}}}}}
+                               (when manual-tls?
+                                 {:tls
+                                  {:stores
+                                   {:default
+                                    {:defaultCertificate
+                                     {:certFile manual-cert-file
+                                      :keyFile  manual-cert-key-file}}}}}))))
+
+    ;; Clean up after ourselves when the JVM shuts down.
     (.removeShutdownHook (Runtime/getRuntime) shutdown-hook)
     (.addShutdownHook (Runtime/getRuntime) shutdown-hook)
-    (reset! traefik-process (doto (ProcessBuilder. (concat [(str traefik-dir "/bin/anvil-" binary-name)
-                                                            "--log.level=debug"
-                                                            "--api.insecure=true"
-                                                            "--api.dashboard=true"
-                                                            "--providers.rest.insecure=true"
-                                                            ;"--entrypoints.http.address=:80"
-                                                            (str "--entrypoints.traefik.address=" management-address)]
-                                                           (if tls
-                                                             (concat ["--certificatesResolvers.letsEncrypt.acme.tlsChallenge=true"
-                                                                      (str "--entrypoints.https.address=:" tls-port)
-                                                                      (str "--certificatesResolvers.letsEncrypt.acme.email=" email)
-                                                                      (str "--certificatesResolvers.letsEncrypt.acme.storage=" storage)]
-                                                                     (when staging?
-                                                                       ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"])))))
-                              (.redirectError ProcessBuilder$Redirect/INHERIT)
-                              (.start)))
 
-    (future
-      (with-open [reader (io/reader (.getInputStream @traefik-process))]
-        (loop []
-          (when-let [line (.readLine ^BufferedReader reader)]
-            (println "[Traefik] " line)
-            (recur)))))
+    (let [traefik-args (concat [(str traefik-dir "/bin/anvil-" binary-name)
+                                (str "--log.level=" (name log-level))
+                                (str "--providers.file.filename=" (.getAbsolutePath config-file))]
 
-    ; Give Traefik a few seconds to start. Query the API to confirm that it's up and running.
-    (loop [remaining-seconds 5]
-      (Thread/sleep 1000)
-      (when-not (try
-                  (let [resp @(http/get (str "http://" management-address "/api/rawdata"))]
-                    (and (= (:status resp) 200)
-                         (json/read-str (:body resp))))
-                  (catch Exception e nil))
-        (if (pos? remaining-seconds)
-          (recur (dec remaining-seconds))
-          (throw (Exception. "Traefik failed to start within a reasonable time.")))))
+                               (cond (= accessLog true)
+                                     ["--accesslog=true"]
+                                     accessLog
+                                     [(str "--accesslog.filepath=" accessLog)])
 
-    (let [resp @(http/put (str "http://" management-address "/api/providers/rest")
-                          {:body (json/write-str {:http {:routers  {"anvil-app" (merge {:entryPoints (if tls ["https"] ["http"])
-                                                                                        :rule        (str "Host(`" hostname "`)")
-                                                                                        :service     "anvil-runtime"}
-                                                                                       (when tls
-                                                                                         {:tls {:certResolver "letsEncrypt"}}))}
-                                                         :services {"anvil-runtime" {:loadBalancer {:servers [{:url forward-to}]}}}}})})]
-      (when-not (= (:status resp) 200)
-        (throw (Exception. "Could not configure Traefik:" (:body resp)))))))
+                               (when http-listen-port
+                                 [(str "--entrypoints.http.address=" listen-ip ":" http-listen-port)])
+
+                               (when dashboard-port
+                                 ["--api=true"
+                                  "--api.dashboard=true"
+                                  (str "--entrypoints.dashboard.address=" dashboard-ip ":" dashboard-port)])
+
+                               (when (or manual-tls? letsencrypt?)
+                                 [(str "--entrypoints.https.address=" listen-ip ":" https-listen-port)])
+
+                               (when letsencrypt?
+                                 (concat ["--certificatesResolvers.letsEncrypt.acme.tlsChallenge=true"
+                                          (str "--certificatesResolvers.letsEncrypt.acme.storage=" letsencrypt-storage)]
+                                         (when letsencrypt-email
+                                           [(str "--certificatesResolvers.letsEncrypt.acme.email=" letsencrypt-email)])
+                                         (when letsencrypt-staging?
+                                           ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"]))))]
+
+      (println traefik-args)
+      (reset! traefik-process (doto (ProcessBuilder. #^"[Ljava.lang.String;" (ArrayList. ^Collection traefik-args))
+                                (.redirectError ProcessBuilder$Redirect/INHERIT)
+                                (.redirectOutput ProcessBuilder$Redirect/INHERIT)
+                                (.start))))))
 
 

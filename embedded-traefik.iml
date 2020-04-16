@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<module cursive.leiningen.project.LeiningenProjectsManager.displayName="embedded-traefik:0.1.0-SNAPSHOT" cursive.leiningen.project.LeiningenProjectsManager.isLeinModule="true" type="JAVA_MODULE" version="4">
+<module cursive.leiningen.project.LeiningenProjectsManager.displayName="anvil/embedded-traefik:0.1.0" cursive.leiningen.project.LeiningenProjectsManager.isLeinModule="true" type="JAVA_MODULE" version="4">
   <component name="NewModuleRootManager">
     <output url="file://$MODULE_DIR$/target/classes" />
     <output-test url="file://$MODULE_DIR$/target/classes" />
@@ -13,6 +13,7 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="Leiningen: clj-yaml:0.4.0" level="project" />
     <orderEntry type="library" name="Leiningen: clojure-complete:0.2.5" level="project" />
     <orderEntry type="library" name="Leiningen: http-kit:2.4.0-alpha6" level="project" />
     <orderEntry type="library" name="Leiningen: nrepl:0.6.0" level="project" />
@@ -20,5 +21,6 @@
     <orderEntry type="library" name="Leiningen: org.clojure/clojure:1.8.0" level="project" />
     <orderEntry type="library" name="Leiningen: org.clojure/data.json:0.2.5" level="project" />
     <orderEntry type="library" name="Leiningen: org.tukaani/xz:1.0" level="project" />
+    <orderEntry type="library" name="Leiningen: org.yaml/snakeyaml:1.5" level="project" />
   </component>
 </module>

@@ -4,6 +4,5 @@
   :license {:name "AGPL"
             :url "https://www.gnu.org/licenses/agpl-3.0.en.html"}
   :dependencies [[org.clojure/clojure "1.8.0"]
-                 [http-kit "2.4.0-alpha6"]
-                 [org.clojure/data.json "0.2.5"]
-                 [org.apache.commons/commons-compress "1.4.1"]])
+                 [org.apache.commons/commons-compress "1.4.1"]
+                 [clj-yaml "0.4.0"]])
