@@ -211,9 +211,15 @@
                                            ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"]))))]
 
       (println traefik-args)
-      (reset! traefik-process (doto (ProcessBuilder. #^"[Ljava.lang.String;" (into-array String traefik-args))
-                                (.redirectError ProcessBuilder$Redirect/INHERIT)
-                                (.redirectOutput ProcessBuilder$Redirect/INHERIT)
-                                (.start))))))
+      (reset! traefik-process (-> (doto (ProcessBuilder. #^"[Ljava.lang.String;" (into-array String traefik-args))
+                                    (.redirectError ProcessBuilder$Redirect/INHERIT)
+                                    (.redirectOutput ProcessBuilder$Redirect/INHERIT))
+                                  (.start)))
+
+      (let [process-finished (promise)]
+        (future
+          (deliver process-finished
+                   (.waitFor @traefik-process)))
+        process-finished))))
 
 
