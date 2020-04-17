@@ -65,7 +65,7 @@
                            log-level                        ; Traefik log level. Default :info
                            dashboard-ip                     ; IP to serve the Traefik dashboard on, if enabled. Default 127.0.0.1
                            dashboard-port                   ; Port to serve the Traefik dashboard on. Default nil (disabled)
-                           accessLog]                       ; Set to true to log requests to stdout. Set to a path to log to a file.
+                           access-log]                       ; Set to true to log requests to stdout. Set to a path to log to a file.
                     :or   {traefik-dir             (.getAbsolutePath (File. ".traefik"))
                            forward-to              "http://127.0.0.1:3030"
                            listen-ip               "0.0.0.0"
@@ -75,12 +75,13 @@
                            manual-cert-file        nil
                            manual-cert-key-file    nil
                            letsencrypt-domain      nil
+                           letsencrypt-storage     (.getAbsolutePath (File. "letsencrypt-certs.json"))
                            letsencrypt-email       nil
                            letsencrypt-staging?    false
                            log-level               :info
                            dashboard-ip            "127.0.0.1"
                            dashboard-port          nil
-                           accessLog               false}
+                           access-log               false}
                     :as   _options}]
   (let [manual-tls? (and https-listen-port
                          manual-cert-file
@@ -88,8 +89,6 @@
         letsencrypt? (and https-listen-port
                           letsencrypt-domain
                           (not manual-tls?))
-
-        letsencrypt-storage (or letsencrypt-storage (str traefik-dir "/letsencrypt-certs.json"))
 
         os-name (System/getProperty "os.name")
         os-arch (System/getProperty "os.arch")
@@ -187,10 +186,10 @@
                                 (str "--log.level=" (name log-level))
                                 (str "--providers.file.filename=" (.getAbsolutePath config-file))]
 
-                               (cond (= accessLog true)
+                               (cond (= access-log true)
                                      ["--accesslog=true"]
-                                     accessLog
-                                     [(str "--accesslog.filepath=" accessLog)])
+                                     access-log
+                                     [(str "--accesslog.filepath=" access-log)])
 
                                (when http-listen-port
                                  [(str "--entrypoints.http.address=" listen-ip ":" http-listen-port)])
@@ -212,7 +211,7 @@
                                            ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"]))))]
 
       (println traefik-args)
-      (reset! traefik-process (doto (ProcessBuilder. #^"[Ljava.lang.String;" (ArrayList. ^Collection traefik-args))
+      (reset! traefik-process (doto (ProcessBuilder. #^"[Ljava.lang.String;" (into-array String traefik-args))
                                 (.redirectError ProcessBuilder$Redirect/INHERIT)
                                 (.redirectOutput ProcessBuilder$Redirect/INHERIT)
                                 (.start))))))
