@@ -210,7 +210,7 @@
                                          (when letsencrypt-staging?
                                            ["--certificatesResolvers.letsEncrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory"]))))]
 
-      (println traefik-args)
+      #_(println traefik-args)
       (reset! traefik-process (-> (doto (ProcessBuilder. #^"[Ljava.lang.String;" (into-array String traefik-args))
                                     (.redirectError ProcessBuilder$Redirect/INHERIT)
                                     (.redirectOutput ProcessBuilder$Redirect/INHERIT))
