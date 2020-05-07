@@ -31,14 +31,17 @@
                 (recur (.read tis bytes 0 32768))))))))))
 
 (defn extract-traefik [from-resource to-dir posix? binary-name]
-  (extract from-resource to-dir)
-  (when posix?
-    (Files/setPosixFilePermissions (.toPath (File. (str to-dir "/" binary-name))) #{PosixFilePermission/OWNER_READ
-                                                                                    PosixFilePermission/OWNER_WRITE
-                                                                                    PosixFilePermission/OWNER_EXECUTE
-                                                                                    PosixFilePermission/GROUP_EXECUTE
-                                                                                    PosixFilePermission/OTHERS_EXECUTE}))
-  (.renameTo (File. (str to-dir "/" binary-name)) (File. (str to-dir "/anvil-" binary-name))))
+  (let [extracted-file (File. (str to-dir "/.extracted"))]
+    (when-not (.exists extracted-file)
+      (extract from-resource to-dir)
+      (when posix?
+        (Files/setPosixFilePermissions (.toPath (File. (str to-dir "/" binary-name))) #{PosixFilePermission/OWNER_READ
+                                                                                        PosixFilePermission/OWNER_WRITE
+                                                                                        PosixFilePermission/OWNER_EXECUTE
+                                                                                        PosixFilePermission/GROUP_EXECUTE
+                                                                                        PosixFilePermission/OTHERS_EXECUTE}))
+      (.renameTo (File. (str to-dir "/" binary-name)) (File. (str to-dir "/anvil-" binary-name)))
+      (spit extracted-file ""))))
 
 (defonce traefik-process (atom nil))
 (defn kill-traefik! []
