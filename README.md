@@ -14,4 +14,4 @@ See [`anvil.app-server.run`](https://github.com/anvil-works/anvil-runtime/blob/4
 
 Copyright © 2020 Anvil
 
-Distributed under the GNU Affero General Public Licence. See [LICENSE](LICENSE)
+Distributed under the MIT Licence. See [LICENSE](LICENSE.md)
