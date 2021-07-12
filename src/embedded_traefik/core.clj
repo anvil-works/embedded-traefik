@@ -68,23 +68,25 @@
                            log-level                        ; Traefik log level. Default :info
                            dashboard-ip                     ; IP to serve the Traefik dashboard on, if enabled. Default 127.0.0.1
                            dashboard-port                   ; Port to serve the Traefik dashboard on. Default nil (disabled)
-                           access-log]                       ; Set to true to log requests to stdout. Set to a path to log to a file.
-                    :or   {traefik-dir             (.getAbsolutePath (File. ".traefik"))
-                           forward-to              "http://127.0.0.1:3030"
-                           listen-ip               "0.0.0.0"
-                           http-listen-port        80
-                           https-listen-port       443
-                           redirect-http-to-https? true
-                           manual-cert-file        nil
-                           manual-cert-key-file    nil
-                           letsencrypt-domain      nil
-                           letsencrypt-storage     (.getAbsolutePath (File. "letsencrypt-certs.json"))
-                           letsencrypt-email       nil
-                           letsencrypt-staging?    false
-                           log-level               :info
-                           dashboard-ip            "127.0.0.1"
-                           dashboard-port          nil
-                           access-log               false}
+                           access-log                       ; Set to true to log requests to stdout. Set to a path to log to a file.
+                           forward-headers-insecure]        ; Set to true to trust and forward incoming X-Forwarded-* headers. Default false
+                    :or   {traefik-dir              (.getAbsolutePath (File. ".traefik"))
+                           forward-to               "http://127.0.0.1:3030"
+                           listen-ip                "0.0.0.0"
+                           http-listen-port         80
+                           https-listen-port        443
+                           redirect-http-to-https?  true
+                           manual-cert-file         nil
+                           manual-cert-key-file     nil
+                           letsencrypt-domain       nil
+                           letsencrypt-storage      (.getAbsolutePath (File. "letsencrypt-certs.json"))
+                           letsencrypt-email        nil
+                           letsencrypt-staging?     false
+                           log-level                :info
+                           dashboard-ip             "127.0.0.1"
+                           dashboard-port           nil
+                           access-log               false
+                           forward-headers-insecure false}
                     :as   _options}]
   (let [manual-tls? (and https-listen-port
                          manual-cert-file
@@ -195,7 +197,9 @@
                                      [(str "--accesslog.filepath=" access-log)])
 
                                (when http-listen-port
-                                 [(str "--entrypoints.http.address=" listen-ip ":" http-listen-port)])
+                                 (concat [(str "--entrypoints.http.address=" listen-ip ":" http-listen-port)]
+                                         (when forward-headers-insecure
+                                           [(str "--entrypoints.http.forwardedHeaders.insecure=true")])))
 
                                (when dashboard-port
                                  ["--api=true"
@@ -203,7 +207,9 @@
                                   (str "--entrypoints.dashboard.address=" dashboard-ip ":" dashboard-port)])
 
                                (when (or manual-tls? letsencrypt?)
-                                 [(str "--entrypoints.https.address=" listen-ip ":" https-listen-port)])
+                                 (concat [(str "--entrypoints.https.address=" listen-ip ":" https-listen-port)]
+                                         (when forward-headers-insecure
+                                           [(str "--entrypoints.https.forwardedHeaders.insecure=true")])))
 
                                (when letsencrypt?
                                  (concat ["--certificatesResolvers.letsEncrypt.acme.tlsChallenge=true"
