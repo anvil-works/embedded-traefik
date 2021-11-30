@@ -108,14 +108,17 @@
                                                  os-arch)) "traefik"]
 
                                 (re-find #"Mac" os-name)
-                                ["darwin_amd64" "traefik"]
+                                [(str "darwin_" (condp = os-arch
+                                                  "x86_64" "amd64"
+                                                  "aarch64" "arm64"
+                                                  os-arch)) "traefik"]
 
                                 :else
                                 (throw (Exception. (str "Unsupported OS: " os-name " (" os-arch ")"))))
 
         posix? (not (re-find #"Windows" os-name))
 
-        filename (str "traefik_v2.2.0_" archive-os-arch ".tar.gz")
+        filename (str "traefik_v2.5.4_" archive-os-arch ".tar.gz")
 
         binary-resource (io/resource filename)
 

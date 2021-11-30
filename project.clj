@@ -1,4 +1,4 @@
-(defproject anvil/embedded-traefik "0.2.0"
+(defproject anvil/embedded-traefik "0.3.0"
   :description "A tiny Clojure library for embedding Traefik in your project"
   :url "https://github.com/anvil-works/embedded-traefik"
   :license {:name "AGPL"
